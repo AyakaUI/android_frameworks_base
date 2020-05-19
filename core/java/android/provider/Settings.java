@@ -14393,6 +14393,12 @@ public final class Settings {
                 "enable_accessibility_global_gesture_enabled";
 
         /**
+         * boolean value. toggles swipe up hint in gestural nav mode
+         * @hide
+         */
+        public static final String NAVIGATION_BAR_HINT = "navigation_bar_hint";
+
+        /**
          * Whether Airplane Mode is on.
          */
         @Readable
