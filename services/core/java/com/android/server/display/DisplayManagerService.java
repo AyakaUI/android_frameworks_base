@@ -564,6 +564,10 @@ public final class DisplayManagerService extends SystemService {
 
     private boolean mMirrorBuiltInDisplay;
 
+    // Whether default display should be included in the display topology. Note that this should
+    // only be used for the devices in projected mode.
+    private boolean mIncludeDefaultDisplayInTopology;
+
     private LMOFreeformDisplayAdapter mFreeformDisplayAdapter;
 
     private final BroadcastReceiver mIdleModeReceiver = new BroadcastReceiver() {
