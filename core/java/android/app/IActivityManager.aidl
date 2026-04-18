@@ -1072,6 +1072,16 @@ interface IActivityManager {
     oneway void reportOptimizationInfo(in IBinder app, in String compilerFilter,
             in String compilationReason);
 
+    String getSpoofPifConfig();
+
+    String getSpoofAppPropsConfig();
+
+    String getSpoofTrickyStoreTarget();
+
+    String getSpoofTrickyStoreKeyBox();
+
+    String getSpoofTrickyStorePatch();
+
     /**
      *  Force full screen for devices with cutout
      */
