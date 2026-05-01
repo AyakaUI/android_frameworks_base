@@ -42,7 +42,8 @@ public class KeyboxUtils {
     public static record Key(int uid, String alias) {}
 
     public static byte[] decodePemOrBase64(String input) {
-        String base64 = input
+	String sanitized = sanitizeXml(input);
+        String base64 = sanitized
                 .replaceAll("-----BEGIN [^-]+-----", "")
                 .replaceAll("-----END [^-]+-----", "")
                 .replaceAll("\\s+", "");
@@ -150,5 +151,17 @@ public class KeyboxUtils {
 
     public static KeyEntryResponse retrieve(int uid, String a) {
         return response.get(new Key(uid, a));
+    }
+
+    private static String sanitizeXml(String content) {
+        content = content.trim();
+        String[] boms = {"\uFEFF", "\uFFFE", "\u0000\uFEFF"};
+        for (String bom : boms) {
+            if (content.startsWith(bom)) {
+                content = content.substring(bom.length());
+            }
+        }
+        content = content.replaceAll("(?s)<!--.*?-->", "");
+        return content.trim();
     }
 }
