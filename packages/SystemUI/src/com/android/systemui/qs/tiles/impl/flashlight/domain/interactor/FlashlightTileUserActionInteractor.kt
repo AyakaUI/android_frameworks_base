@@ -56,7 +56,7 @@ constructor(
                             !ActivityManager.isUserAMonkey() &&
                                 input.data is FlashlightModel.Available
                         ) {
-                            flashlightController.setFlashlight(!input.data.enabled)
+                            flashlightInteractor.get().setEnabled(!input.data.enabled)
                         }
                     } else { // preserve old behavior at the cost of some redundancy
                         if (
