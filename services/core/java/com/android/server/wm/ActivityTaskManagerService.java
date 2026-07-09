@@ -825,8 +825,6 @@ public class ActivityTaskManagerService extends IActivityTaskManager.Stub {
 
     private Set<Integer> mProfileOwnerUids = new ArraySet<Integer>();
 
-    private AppLockManagerServiceInternal mAppLockManagerService = null;
-
     private CutoutFullscreenController mCutoutFullscreenController;
     private AppLockManagerServiceInternal mAppLockManagerService = null;
 
