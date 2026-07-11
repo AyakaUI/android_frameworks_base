@@ -7021,6 +7021,11 @@ public final class Settings {
         public static final String THREE_FINGER_GESTURE = "three_finger_gesture";
 
         /**
+         * @hide
+         */
+        public static final String RECENTS_LOCKED_TASKS = "recents_locked_tasks";
+
+        /**
          * These are all public system settings
          *
          * @hide
@@ -13709,11 +13714,6 @@ public final class Settings {
          */
         @Readable
         public static final String HIDE_APPLIST = "hide_applist";
-
-        /**
-         * @hide
-         */
-        public static final String RECENTS_LOCKED_TASKS = "recents_locked_tasks";
 
         /**
          * Keys we no longer back up under the current schema, but want to continue to
