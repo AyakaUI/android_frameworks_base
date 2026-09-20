@@ -39,7 +39,7 @@ public final class AttestationService extends SystemService {
     private static final String API =
             Resources.getSystem()
                     .getString(com.android.internal.R.string.config_pifUpdateUrl)
-                    .replace("{version}", SystemProperties.get("net.pixelos.version"));
+                    .replace("{version}", SystemProperties.get("net.ayaka.version"));
 
     private static final String DATA_FILE = "gms_certified_props.json";
 
