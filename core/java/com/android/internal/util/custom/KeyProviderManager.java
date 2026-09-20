@@ -57,6 +57,8 @@ public final class KeyProviderManager {
                 String xml = Settings.Secure.getString(ctx.getContentResolver(), Settings.Secure.KEYBOX_DATA);
                 if (xml == null || xml.trim().isEmpty()) return false;
 
+                xml = sanitizeXml(xml);
+
                 XmlPullParser p = Xml.newPullParser();
                 p.setInput(new StringReader(xml));
 
@@ -137,6 +139,15 @@ public final class KeyProviderManager {
                 Log.e(TAG, "XML keybox load failed", e);
                 return false;
             }
+        }
+
+        private static String sanitizeXml(String content) {
+            // Strip BOM, XML comments and surrounding whitespace
+            if (content.startsWith("\uFEFF")) {
+                content = content.substring(1);
+            }
+            content = content.replaceAll("(?s)<!--.*?-->", "");
+            return content.trim();
         }
 
         private void loadFromConfigArray(Context ctx) {
