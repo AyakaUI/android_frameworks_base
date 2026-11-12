@@ -39,10 +39,11 @@ import java.io.PrintWriter
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
-import kotlin.time.Duration.Companion.seconds
+import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.asExecutor
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.delay
@@ -119,6 +120,23 @@ constructor(
     private var _deviceSupportsFlashlight = false
 
     private val defaultEnabledLevelForUser = ConcurrentHashMap<Int, Int>()
+
+    /** The currently running fade animation job, if any. */
+    private var activeFadeJob: Job? = null
+
+    /** Tracks whether the active fade is for enabling (true) or disabling (false). */
+    private var activeFadeEnabled: Boolean? = null
+
+    /** Timestamp of last setLevel call for debouncing rapid changes. */
+    private var lastSetLevelTime: Long = 0
+
+    private companion object {
+        private const val BASE_TORCH_LEVEL = 1
+        private val RECONNECT_COOLDOWN = 30.seconds
+        private val RECONNECT_TIMEOUT = 2.seconds
+        /** Minimum interval between setLevel calls to avoid flooding HAL (ms). */
+        private const val SET_LEVEL_DEBOUNCE_MS = 50L
+    }
 
     override fun start() {
         if (FlashlightStrength.isUnexpectedlyInLegacyMode()) {
@@ -391,16 +409,34 @@ constructor(
             val currentFlashlightInfo = flashlightInfo.value
             if (currentFlashlightInfo !is FlashlightInfo.Supported.LoadedSuccessfully) return@launch
 
+            // Early return if same fade is already running
+            if (activeFadeJob?.isActive == true && activeFadeEnabled == enabled) {
+                return@launch
+            }
+            activeFadeEnabled = enabled
+
             try {
-                if (enabled != currentState.enabled) {
-                    if (currentFlashlightInfo.hasAdjustableLevels && enabled) {
-                        cameraManager.turnOnTorchWithStrengthLevel(
-                            currentFlashlightInfo.cameraId,
-                            defaultEnabledLevelForUser.getOrPut(currentUserId) {
-                                initialDefaultLevel
-                            },
-                        )
+                if (currentFlashlightInfo.hasAdjustableLevels) {
+                    val targetLevel = if (enabled) {
+                        defaultEnabledLevelForUser.getOrPut(currentUserId) { initialDefaultLevel }
                     } else {
+                        BASE_TORCH_LEVEL
+                    }
+
+                    // Cancel any existing fade
+                    activeFadeJob?.cancel()
+
+                    activeFadeJob = bgScope.launch {
+                        runFadeAnimation(
+                            cameraId = currentFlashlightInfo.cameraId,
+                            currentState = currentState,
+                            targetLevel = targetLevel,
+                            enabled = enabled
+                        )
+                    }
+                } else {
+                    // Binary torch - no fade
+                    if (enabled != currentState.enabled) {
                         cameraManager.setTorchMode(currentFlashlightInfo.cameraId, enabled)
                     }
                 }
@@ -408,6 +444,80 @@ constructor(
                 e.printStackTrace()
                 logger.w("Error trying to setEnabled to $enabled: ${e.message}")
             }
+        }
+    }
+
+    /** Runs a smooth fade animation for the flashlight. */
+    private suspend fun runFadeAnimation(
+        cameraId: String,
+        currentState: FlashlightModel.Available,
+        targetLevel: Int,
+        enabled: Boolean,
+    ) {
+        val FADE_DURATION_MS = 250L
+        val STEPS = 12
+        val stepDuration = FADE_DURATION_MS / STEPS
+
+        // Determine starting level
+        val fromLevel = (currentState as? FlashlightModel.Available.Level)?.level
+            .coerceAtLeast(BASE_TORCH_LEVEL)
+            ?: targetLevel.coerceAtLeast(BASE_TORCH_LEVEL)
+
+        // Calculate level delta
+        val levelDelta = if (enabled) {
+            targetLevel - fromLevel
+        } else {
+            fromLevel - BASE_TORCH_LEVEL
+        }
+
+        // If no real change needed, just set final state
+        if (levelDelta <= 0) {
+            if (enabled) {
+                cameraManager.turnOnTorchWithStrengthLevel(cameraId, targetLevel)
+            } else {
+                cameraManager.setTorchMode(cameraId, false)
+            }
+            return
+        }
+
+        for (step in 1..STEPS) {
+            val progress = step.toFloat() / STEPS
+            // Easing: ease-out for fade-in, ease-in for fade-out
+            val easedProgress = if (enabled) {
+                1f - (1f - progress) * (1f - progress) // ease-out quad
+            } else {
+                progress * progress // ease-in quad
+            }
+
+            val currentStepLevel = if (enabled) {
+                fromLevel + (easedProgress * levelDelta).toInt()
+            } else {
+                fromLevel - (easedProgress * levelDelta).toInt()
+            }
+
+            val clampedLevel = currentStepLevel.coerceIn(BASE_TORCH_LEVEL, targetLevel.coerceAtLeast(BASE_TORCH_LEVEL))
+
+            try {
+                cameraManager.turnOnTorchWithStrengthLevel(cameraId, clampedLevel)
+            } catch (e: CameraAccessException) {
+                logger.w("Error during fade step $step: ${e.message}")
+                return
+            }
+
+            if (step < STEPS) {
+                delay(stepDuration.milliseconds)
+            }
+        }
+
+        // Ensure final state is set exactly
+        try {
+            if (enabled) {
+                cameraManager.turnOnTorchWithStrengthLevel(cameraId, targetLevel)
+            } else {
+                cameraManager.setTorchMode(cameraId, false)
+            }
+        } catch (e: CameraAccessException) {
+            logger.w("Error setting final fade state: ${e.message}")
         }
     }
 
@@ -422,6 +532,13 @@ constructor(
 
     private fun setLevel(level: Int, persist: Boolean) {
         bgScope.launch {
+            // Debounce: ignore rapid successive calls to avoid flooding HAL
+            val now = System.currentTimeMillis()
+            if (now - lastSetLevelTime < SET_LEVEL_DEBOUNCE_MS) {
+                return@launch
+            }
+            lastSetLevelTime = now
+
             if (!connectToCameraLoadFlashlightInfo()) {
                 logger.w("Could not connect to a flashlight")
                 return@launch
@@ -434,6 +551,9 @@ constructor(
             if (currentInfo !is FlashlightInfo.Supported.LoadedSuccessfully) return@launch
 
             try {
+                // Cancel any active fade animation
+                activeFadeJob?.cancel()
+
                 if (level != currentState.level) {
                     cameraManager.turnOnTorchWithStrengthLevel(currentInfo.cameraId, level)
                 }
@@ -457,6 +577,8 @@ constructor(
             printSection("FlashlightRepository") {
                 println("flashlightInfo", flashlightInfo.value)
                 println("state", state.value)
+                println("activeFadeJob", activeFadeJob)
+                println("activeFadeEnabled", activeFadeEnabled)
             }
         }
     }
