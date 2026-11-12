@@ -40,6 +40,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -460,7 +461,7 @@ constructor(
 
         // Determine starting level
         val fromLevel = (currentState as? FlashlightModel.Available.Level)?.level
-            .coerceAtLeast(BASE_TORCH_LEVEL)
+            ?.coerceAtLeast(BASE_TORCH_LEVEL)
             ?: targetLevel.coerceAtLeast(BASE_TORCH_LEVEL)
 
         // Calculate level delta
@@ -590,10 +591,4 @@ constructor(
 
     private val currentUserId: Int
         get() = userRepo.selectedUser.value.userInfo.id
-
-    private companion object {
-        private const val BASE_TORCH_LEVEL = 1
-        private val RECONNECT_COOLDOWN = 30.seconds
-        private val RECONNECT_TIMEOUT = 2.seconds
-    }
 }
